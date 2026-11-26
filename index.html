@@ -343,24 +343,31 @@ function idb(){return new Promise(function(ok,no){try{var r=indexedDB.open('port
 function store(mode,fn){return idb().then(function(db){return new Promise(function(ok,no){var t=db.transaction('f',mode),q=fn(t.objectStore('f'));t.oncomplete=function(){ok(q.result)};t.onerror=t.onabort=no})})}
 function esc(t){return String(t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function kb(n){return n>1048576?(n/1048576).toFixed(1)+' MB':Math.max(1,Math.round(n/1024))+' KB'}
-function lists(){[["actList",ACT,"a"],["exList",EX,"e"]].forEach(function(p){document.getElementById(p[0]).innerHTML=p[1].map(function(a,i){var s=p[2]+i;return '<div class="li"><button class="lb" aria-expanded="false"><span class="num">'+(i+1)+'</span><span class="lt"><b>'+a[0]+'</b><small>'+a[1]+'</small></span><span class="bdg" id="b-'+s+'"></span><span class="chev">\u203A</span></button><div class="ld"><p>'+a[2]+'</p>'+(a[3]?'<a class="fr" href="'+a[3]+'" target="_blank" rel="noopener">\uD83D\uDCCE Open attached file \u2197</a>':'')+'<div class="fl" id="f-'+s+'"></div><label class="addf">+ Add file<input type="file" multiple hidden data-slot="'+s+'"></label></div></div>'}).join('')});showFiles()}
+function lists(){[["actList",ACT,"a"],["exList",EX,"e"]].forEach(function(p){document.getElementById(p[0]).innerHTML=p[1].map(function(a,i){var s=p[2]+i;return '<div class="li"><button class="lb" aria-expanded="false"><span class="num">'+(i+1)+'</span><span class="lt"><b>'+a[0]+'</b><small>'+a[1]+'</small></span><span class="bdg" id="b-'+s+'"></span><span class="chev">\u203A</span></button><div class="ld"><p>'+a[2]+'</p>'+(a[3]?'<a class="fr" href="'+a[3]+'" target="_blank" rel="noopener">\uD83D\uDCCE Open attached file \u2197</a>':'')+'<div class="fl" id="f-'+s+'"></div><label class="addf">+ Add file<input type="file" hidden data-slot="'+s+'"></label></div></div>'}).join('')});showFiles()}
+var pending={};
+function hasFile(slot,item){
+return !!item[3]||FILES.some(function(f){return f.slot===slot})}
 function showFiles(){
 FILES.forEach(function(f){if(!urls[f.id])urls[f.id]=URL.createObjectURL(f.blob)});
 [["a",ACT],["e",EX]].forEach(function(p){p[1].forEach(function(x,i){var s=p[0]+i,el=document.getElementById('f-'+s);if(!el)return;
 var fs=FILES.filter(function(f){return f.slot===s});
 el.innerHTML=fs.map(function(f){return '<div class="fr">'+(f.thumb?'<img class="thumb" src="'+f.thumb+'" alt="">':'\uD83D\uDCCE')+'<span>'+esc(f.name)+' <small>'+kb(f.size)+'</small></span><a href="'+urls[f.id]+'" target="_blank" rel="noopener">Open</a><button data-del="'+f.id+'">Remove</button></div>'}).join('');
-document.getElementById('b-'+s).textContent=fs.length?'\uD83D\uDCCE '+fs.length:''})});
+document.getElementById('b-'+s).textContent=fs.length?'\uD83D\uDCCE '+fs.length:'';
+el.parentNode.querySelector('.addf').style.display=hasFile(s,x)?'none':''})});
 var done=function(l,p){return l.filter(function(a,i){return a[3]||FILES.some(function(f){return f.slot===p+i})}).length};
 document.getElementById('actSum').textContent=done(ACT,'a')+' of '+ACT.length+' activities have files';
 document.getElementById('exSum').textContent=done(EX,'e')+' of '+EX.length+' exercises have files'}
 document.addEventListener('change',function(e){var inp=e.target;if(!inp.dataset||!inp.dataset.slot)return;
+var slot=inp.dataset.slot,file=inp.files[0];inp.value='';
+var item=(slot.charAt(0)==='a'?ACT:EX)[+slot.slice(1)];
+if(!file||pending[slot]||hasFile(slot,item))return;
 var note=document.getElementById('fnote');note.textContent='';
-Array.prototype.slice.call(inp.files).forEach(function(file){
 if(file.size>10485760){note.textContent=file.name+' is bigger than 10 MB, so it was skipped.';return}
-var rec={slot:inp.dataset.slot,name:file.name,type:file.type||'application/octet-stream',size:file.size,blob:file};
-var put=function(){store('readwrite',function(s){return s.add(rec)}).then(function(id){rec.id=id;FILES.push(rec);showFiles()}).catch(function(){rec.id=Date.now()+Math.random();FILES.push(rec);showFiles();note.textContent='This browser view cannot save files permanently, so they will be gone when you reload.'})};
-if(rec.type.indexOf('image/')===0){var r=new FileReader();r.onload=function(){rec.thumb=r.result;put()};r.readAsDataURL(file)}else put()});
-inp.value=''});
+pending[slot]=true;
+var rec={slot:slot,name:file.name,type:file.type||'application/octet-stream',size:file.size,blob:file};
+var add=function(){FILES.push(rec);pending[slot]=false;showFiles()};
+var put=function(){store('readwrite',function(s){return s.add(rec)}).then(function(id){rec.id=id;add()}).catch(function(){rec.id=Date.now()+Math.random();add();note.textContent='This browser view cannot save files permanently, so they will be gone when you reload.'})};
+if(rec.type.indexOf('image/')===0){var r=new FileReader();r.onload=function(){rec.thumb=r.result;put()};r.onerror=put;r.readAsDataURL(file)}else put()});
 document.addEventListener('click',function(e){var b=e.target.closest('.lb');if(b){var li=b.parentNode;li.classList.toggle('open');b.setAttribute('aria-expanded',li.classList.contains('open'))}
 var d=e.target.dataset&&e.target.dataset.del;if(d){var id=+d;FILES=FILES.filter(function(f){return f.id!==id});showFiles();store('readwrite',function(s){return s.delete(id)}).catch(function(){})}});
 store('readonly',function(s){return s.getAll()}).then(function(a){FILES=a||[];showFiles()}).catch(function(){});
